@@ -1,0 +1,76 @@
+region: us-east-1
+envKey: 3d4wLSGxWbHY851xtpVw-5XK1wv9qeqSo92Eu
+envVariables: null
+
+## String to partially override common.names.fullname template (will maintain the release name)
+##
+# nameOverride:
+# fullnameOverride:
+
+## hello-nest image
+## ref: https://hqo.jfrog.io/ui/repos/tree/General/docker%2Fhello-nest
+##
+image:
+  repository: hqo-docker.jfrog.io/hello-nest
+  tag: latest
+
+  ## Specify a imagePullPolicy
+  ## Defaults to 'Always' if image tag is 'latest', else set to 'IfNotPresent'
+  ## ref: http://kubernetes.io/docs/user-guide/images/#pre-pulling-images
+  ##
+  pullPolicy: IfNotPresent
+
+  ## Optionally specify an array of imagePullSecrets (secrets must be manually created in the namespace)
+  ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+  pullSecrets:
+    - name: docker-credentials
+
+## hello-nest port
+#
+port: 3000
+
+## user-service container's resource requests and limits
+## ref: http://kubernetes.io/docs/user-guide/compute-resources/
+##
+resources:
+  requests:
+    cpu: 20m
+    memory: 150Mi
+
+## Number of hello-nest replicas to deploy
+#
+replica:
+  count: 1
+  min: 1
+  max: 1
+
+## updateStrategy for hello-nest api deployment
+## ref: https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#update-strategies
+##
+strategy:
+  rollingUpdate:
+    maxSurge: 30%
+    maxUnavailable: 10%
+  type: RollingUpdate
+
+## hello-nest container's liveness, readiness and startup probes
+## ref: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#container-probes
+##
+startupProbe:
+  initialDelaySeconds: 5
+  timeoutSeconds: 10
+  periodSeconds: 5
+  successThreshold: 1
+  failureThreshold: 200
+livenessProbe:
+  initialDelaySeconds: 5
+  timeoutSeconds: 10
+  periodSeconds: 10
+  successThreshold: 1
+  failureThreshold: 3
+readinessProbe:
+  initialDelaySeconds: 5
+  timeoutSeconds: 10
+  periodSeconds: 10
+  successThreshold: 1
+  failureThreshold: 3

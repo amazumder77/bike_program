@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helloNest.fullname" . }}
+  labels: {{ include "helloNest.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replica.count }}
+  strategy: {{- toYaml .Values.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "helloNest.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "helloNest.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      imagePullSecrets: {{- toYaml .Values.image.pullSecrets | nindent 8 }}
+      serviceAccount: {{ include "helloNest.name" . }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [sh, -c, 'eval $(envkey-source); yarn start:prod']
+          startupProbe: {{- toYaml .Values.startupProbe | nindent 12 }}
+            tcpSocket:
+              port: {{ .Values.port }}
+          readinessProbe: {{- toYaml .Values.readinessProbe | nindent 12 }}
+            httpGet:
+              path: /healthcheck
+              port: {{ .Values.port }}
+              scheme: HTTP
+          livenessProbe: {{- toYaml .Values.livenessProbe | nindent 12 }}
+            tcpSocket:
+              port: {{ .Values.port }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "helloNest.fullname" . }}-config
+          env:
+            - name: ENVKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "helloNest.fullname" . }}
+                  key: envkey
+            - name: DD_AGENT_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: DD_SERVICE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/name']
+            - name: DD_VERSION
+              value: {{ .Values.image.tag }}
+            - name: DD_ENV
+              value: {{ .Values.region }}
+            - name: PORT
+              value: {{ .Values.port | quote }}

@@ -1,0 +1,20 @@
+version: 2
+registries:
+  artifactory:
+    type: npm-registry
+    url: https://hqo.jfrog.io/artifactory/api/npm/npm/
+    username: circleci
+    password: ${{secrets.ARTIFACTORY_APIKEY}}
+updates:
+  - package-ecosystem: npm
+    directory: /
+    registries:
+      - artifactory
+    schedule:
+      interval: daily
+      time: '10:00'
+    commit-message:
+      prefix: 'DEPENDABOT: '
+    open-pull-requests-limit: 10
+    reviewers:
+      - hqoapp/web-admins

@@ -1,0 +1,4 @@
+{
+  "default_env_test_value": "default TESTING en_US test val",
+  "test_value_with_variable": "test ${testName}"
+}

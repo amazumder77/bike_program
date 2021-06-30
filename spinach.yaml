@@ -1,0 +1,46 @@
+popeye:
+  # Excludes define rules to exampt resources from sanitization
+  excludes:
+    rbac.authorization.k8s.io/v1/clusterrolebindings:
+      - name: rx:.*
+    rbac.authorization.k8s.io/v1/clusterroles:
+      - name: rx:.*
+    rbac.authorization.k8s.io/v1/rolebindings:
+      - name: rx:hqo
+    apps/v1/deployments:
+      - name: rx:redis
+      - name: rx:hello-nest
+        codes:
+          - 101 # Image tagged "latest" in use.
+          # - 107 # No resource limits defined.
+          # - 404 # Deprecation check failed. Unable to assert resource version.
+    apps/v1/statefulsets:
+      - name: rx:common-mysql
+    v1/persistentvolumes:
+      - name: rx:.*
+    v1/configmaps:
+      - name: rx:common-mysql
+      - name: rx:kube-root
+    v1/namespaces:
+      - name: rx:.*
+    v1/pods:
+      - name: rx:common-mysql
+      - name: rx:redis
+      - name: rx:hello-nest
+        codes:
+          - 101 # Image tagged "latest" in use.
+          # - 107 # No resource limits defined.
+          # - 301 # Connects to API Server? ServiceAccount token is mounted.
+          # - 302 # Pod could be running as root user. Check SecurityContext/Image.
+          # - 306 # Container could be running as root user. Check SecurityContext/Image.
+    v1/serviceaccounts:
+      - name: rx:common-mysql
+      - name: rx:default
+    v1/secrets:
+      - name: rx:common-mysql
+      - name: rx:docker-credentials
+      - name: rx:default
+      - name: rx:sh.helm.release
+    v1/services:
+      - name: rx:common-mysql
+      - name: rx:.*redis

@@ -1,0 +1,10 @@
+#prettier-ignore
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "helloNest.fullname" . }}-config
+  labels: {{ include "helloNest.labels" . | nindent 4 }}
+data:
+  {{- if .Values.envVariables }}
+  {{- toYaml .Values.envVariables | nindent 2 }}
+  {{- end }}

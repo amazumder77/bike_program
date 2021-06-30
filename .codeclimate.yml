@@ -1,0 +1,69 @@
+version: '2'
+#########################################################################################################
+# All these checks are enabled by default - uncomment and modify them only if custom values are requried
+#  or check needs to be disabled altogether.
+#########################################################################################################
+# checks:
+#   argument-count:
+#     enabled: true
+#     config:
+#       threshold: 4
+#   complex-logic:
+#     enabled: true
+#     config:
+#       threshold: 4
+#   file-lines:
+#     enabled: true
+#     config:
+#       threshold: 250
+#   method-complexity:
+#     enabled: true
+#     config:
+#       threshold: 5
+#   method-count:
+#     enabled: true
+#     config:
+#       threshold: 20
+#   method-lines:
+#     enabled: true
+#     config:
+#       threshold: 25
+#   nested-control-flow:
+#     enabled: true
+#     config:
+#       threshold: 4
+#   return-statements:
+#     enabled: true
+#     config:
+#       threshold: 4
+plugins:
+  duplication:
+    enabled: true
+    config:
+      languages:
+        javascript:
+          mass_threshold: 50
+  eslint:
+    enabled: true
+    channel: "eslint-7"
+  fixme:
+    enabled: true
+  nodesecurity:
+    enabled: true
+# These are default exclusion patterns - uncomment and modify them only if custom values are required
+# for exclude_patterns:
+  ##### Start of Default exclusions patterns, ref url -  https://docs.codeclimate.com/docs/excluding-files-and-folders
+  # - config/
+  # - db/
+  # - migrations/
+  # - dist/
+  # - features/
+  # - "**/node_modules/"
+  # - script/
+  # - "**/spec/"
+  # - "**/test/"
+  # - "**/tests/"
+  # - Tests/
+  # - "**/vendor/"
+  # - "**/*.d.ts"
+  ##### End of Default exclusion patterns #####

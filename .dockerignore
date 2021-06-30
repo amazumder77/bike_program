@@ -1,0 +1,9 @@
+# Ignore everything by default
+*
+
+# include only what we need
+!src
+!*.json
+!yarn.lock
+!.npmrc
+!.yarnrc

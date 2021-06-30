@@ -1,0 +1,4 @@
+apiVersion: v2
+name: hello-nest
+description: A Helm example chart for hello_nest
+version: 1.1.0

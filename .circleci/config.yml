@@ -1,0 +1,263 @@
+version: 2.1
+executors:
+  node-lts:
+    docker:
+      - image: &node-image circleci/node:14.15
+    working_directory: ~/hello_nest
+  node-with-db:
+    docker:
+      - image: *node-image
+      - image: mysql:5.7
+        environment:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: test
+      - image: redis:5.0
+    working_directory: ~/hello_nest
+
+orbs:
+  helm: circleci/helm@1.1.2
+  shellcheck: circleci/shellcheck@2.0.0
+  artifactory: circleci/artifactory@1.0.0
+
+commands:
+  setup_npmrc:
+    steps:
+      - run:
+          name: Configure NPM
+          command: |
+            npm config set always-auth true --userconfig ./.npmrc
+            npm set //hqo.jfrog.io/artifactory/api/npm/npm/:_authToken $ARTIFACTORY_APIKEY --userconfig ./.npmrc
+  restore_yarn:
+    steps:
+      - restore_cache:
+          name: Restore Cache [ yarn install ]
+          key: yarn-cache-{{ checksum "yarn.lock" }}
+  install_codeclimate:
+    steps:
+      - run:
+          name: Download cc-test-reporter
+          command: |
+            mkdir -p tmp/
+            curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./tmp/cc-test-reporter
+            chmod +x ./tmp/cc-test-reporter
+  create_jira_release:
+    steps:
+      - attach_workspace:
+          at: ~/hello_nest
+      - run:
+          name: Create jira release
+          command: |
+            ./scripts/create-release.sh $JIRA_LOGIN $JIRA_TOKEN $JIRA_RELEASE_PROJECT $JIRA_APPLICATION_NAME
+
+jobs:
+  setup_node:
+    executor: node-lts
+    steps:
+      - checkout
+      # Download and cache dependencies
+      - restore_yarn
+      - setup_npmrc
+      - run: yarn install --ignore-scripts --frozen-lockfile
+      - save_cache:
+          name: Saving Cache [ yarn install ]
+          key: yarn-cache-{{ checksum "yarn.lock" }}
+          paths:
+            - ./node_modules
+  validate_scripts:
+    executor: node-lts
+    steps:
+      - checkout
+      - shellcheck/install
+      - shellcheck/check:
+          dir: ./scripts
+  lint:
+    executor: node-lts
+    steps:
+      - checkout
+      - restore_yarn
+      - run: yarn lint
+  check_types:
+    executor: node-lts
+    steps:
+      - checkout
+      - restore_yarn
+      - run: yarn types:check
+
+  test:
+    executor: node-lts
+    steps:
+      - checkout
+      - install_codeclimate
+      - restore_yarn
+      - run:
+          name: Run unit tests with coverage
+          command: yarn test:cov:ci
+      - run:
+          name: Save coverage report
+          command: ./tmp/cc-test-reporter format-coverage -t lcov -o tmp/codeclimate.unit.json coverage/lcov.info
+      - persist_to_workspace:
+          root: .
+          paths:
+            - tmp/codeclimate.unit.json
+  test_functional:
+    executor: node-with-db
+    steps:
+      - checkout
+      - install_codeclimate
+      - restore_yarn
+      - run:
+          name: Prepare test database
+          command: |
+            yarn test:redis:wait:ci
+            yarn test:db:prepare:ci
+      - run:
+          name: Run Functional Tests
+          command: yarn test:e2e:ci
+      - run:
+          name: Save coverage report
+          command: ./tmp/cc-test-reporter format-coverage -t lcov -o tmp/codeclimate.e2e.json e2e-coverage/lcov.info
+      - persist_to_workspace:
+          root: .
+          paths:
+            - tmp/codeclimate.e2e.json
+
+  build_and_push_image:
+    executor: node-lts
+    steps:
+      - setup_remote_docker:
+          version: 19.03.13
+          docker_layer_caching: true
+      - checkout
+      - setup_npmrc
+      - artifactory/install
+      - artifactory/docker-login:
+          artifactory-key: ARTIFACTORY_APIKEY
+          docker-registry: hqo-docker.jfrog.io
+      - run:
+          name: Build & Tag Users Service Image
+          command: |
+            docker build . -t hqo-docker.jfrog.io/hello-nest:$CIRCLE_SHA1 -t hqo-docker.jfrog.io/hello-nest:latest
+      - run:
+          name: Publish hello-nest image with commit hash tag
+          command: docker push hqo-docker.jfrog.io/hello-nest:$CIRCLE_SHA1
+      - when: # master branch
+          condition:
+            equal: [master, << pipeline.git.branch >>]
+          steps:
+            - run:
+                name: Publish latest hello-nest image
+                command: docker push hqo-docker.jfrog.io/hello-nest:latest
+  update_helm_chart:
+    docker:
+      - image: circleci/buildpack-deps
+    parameters:
+      chart:
+        type: string
+    steps:
+      - checkout
+      - helm/install-helm-client:
+          version: v3.4.2
+      - run: # install helm push-artifactory plugin
+          name: Install Helm Artifactory Push plugin
+          command: helm plugin install https://github.com/belitre/helm-push-artifactory-plugin --version v1.0.2
+      - run: # add helm repo
+          name: Add hqo Helm repo
+          command: |
+            helm repo add hqo https://hqo.jfrog.io/artifactory/helm --username $ARTIFACTORY_USER --password $ARTIFACTORY_APIKEY
+      - run: # lint helm chart
+          name: Lint << parameters.chart >> helm chart
+          command: helm lint helm/<< parameters.chart >>
+      - when: # package and push when master branch
+          condition:
+            equal: [master, << pipeline.git.branch >>]
+          steps:
+            - run:
+                name: Publish << parameters.chart >> helm chart
+                command: | # only push pacakges if we made a change
+                  if echo $(git diff-tree --no-commit-id --name-only -r HEAD) | grep helm/<< parameters.chart >> &> /dev/null; then
+                    export CHART_VERSION=$(grep -E '^version:' helm/<< parameters.chart >>/Chart.yaml); CHART_VERSION=${CHART_VERSION//*version: /}; echo CHART_VERSION=$CHART_VERSION
+                    helm dependency update helm/<< parameters.chart >>
+                    helm package helm/<< parameters.chart >>
+                    helm push-artifactory << parameters.chart >>-$CHART_VERSION.tgz https://hqo.jfrog.io/artifactory/helm-local --username $ARTIFACTORY_USER --access-token $ARTIFACTORY_APIKEY
+                  fi
+      - when: # package and push when non master branch
+          condition:
+            not:
+              equal: [master, << pipeline.git.branch >>]
+          steps:
+            - run:
+                name: Publish << parameters.chart >> helm chart
+                command: | # only push pacakges if we made a change
+                  if git diff-tree --no-commit-id --name-only -r HEAD | grep helm/<< parameters.chart >> &> /dev/null; then
+                    export CHART_VERSION=$(grep -E '^version:' helm/<< parameters.chart >>/Chart.yaml); CHART_VERSION=${CHART_VERSION//*version: /}; echo CHART_VERSION=$CHART_VERSION
+                    helm dependency update helm/<< parameters.chart >>
+                    helm package helm/<< parameters.chart >> --version $CHART_VERSION-$CIRCLE_SHA1
+                    helm push-artifactory << parameters.chart >>-$CHART_VERSION-$CIRCLE_SHA1.tgz https://hqo.jfrog.io/artifactory/helm-local --username $ARTIFACTORY_USER --access-token $ARTIFACTORY_APIKEY
+                  fi
+
+  upload_codeclimate:
+    executor: node-lts
+    steps:
+      - attach_workspace:
+          at: ~/hello_nest
+      - install_codeclimate
+      - run:
+          name: Upload coverage results to Code Climate
+          command: |
+            ./tmp/cc-test-reporter sum-coverage tmp/codeclimate.*.json -p 2 -o tmp/codeclimate.total.json
+            ./tmp/cc-test-reporter upload-coverage -i tmp/codeclimate.total.json
+  create_jira_release:
+    executor: node-lts
+    steps:
+      - checkout
+      - create_jira_release
+  trigger_pre_prod_deployment:
+    executor: node-lts
+    steps:
+      - checkout
+      - run: ./scripts/deploy-to-pre-prod.sh "$JENKINS_EMAIL" "$JENKINS_TOKEN" "$CIRCLE_SHA1"
+
+workflows:
+  version: 2
+  on-commit:
+    jobs:
+      - setup_node:
+          context: artifactory
+      - validate_scripts:
+          requires:
+            - setup_node
+      - lint:
+          requires:
+            - setup_node
+      - check_types:
+          requires:
+            - setup_node
+      - update_helm_chart:
+          name: 'update_helm_chart [ hello-nest ]'
+          context: artifactory
+          chart: hello-nest
+          requires:
+            - setup_node
+      - test:
+          requires:
+            - check_types
+            - lint
+      - build_and_push_image:
+          context: artifactory
+          requires:
+            - lint
+            - check_types
+      - test_functional:
+          requires:
+            - lint
+            - check_types
+      - upload_codeclimate:
+          requires:
+            - test
+            - test_functional
+      - create_jira_release:
+          requires:
+            - upload_codeclimate
+          filters:
+            branches:
+              only: master

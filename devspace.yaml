@@ -1,0 +1,97 @@
+version: v1beta9
+
+vars:
+  - name: CIRCLE_SHA1
+    source: env
+
+## Deployments ##################################################################################################
+deployments:
+  - name: common-mysql
+    helm:
+      chart:
+        name: common-mysql
+        repo: https://hqo.jfrog.io/artifactory/helm
+      wait: true
+      values:
+        mysql:
+          image:
+            pullPolicy: Always
+          primary:
+            livenessProbe:
+              initialDelaySeconds: 5
+            readinessProbe:
+              initialDelaySeconds: 5
+            startupProbe:
+              initialDelaySeconds: 30
+  - name: hello-nest-redis
+    helm:
+      chart:
+        name: redis
+        repo: https://hqo.jfrog.io/artifactory/helm
+      wait: true
+
+## Development ##################################################################################################
+dev:
+  logs:
+    disabled: true
+  ports:
+    - labelSelector:
+        app.kubernetes.io/name: common-mysql
+      forward:
+        - port: 3306
+    - labelSelector:
+        app.kubernetes.io/name: redis
+      forward:
+        - port: 6379
+
+## Profiles #####################################################################################################
+profiles:
+  #
+  # Use this profile when you want to test helix in kubernetes like production
+  - name: production
+    patches:
+      - op: add
+        path: deployments
+        value:
+          name: hello-nest
+          helm:
+            chart:
+              name: helm/hello-nest
+            values:
+              image:
+                pullPolicy: Always
+      - op: add
+        path: dev.ports
+        value:
+          labelSelector:
+            app.kubernetes.io/name: hello-nest
+          forward:
+            - port: 3000
+  #
+  # Use this profile when you want to build the hello-nest image and test in kubernetes
+  - name: build
+    parent: production
+    patches:
+      - op: add
+        path: images
+        value:
+          hello-nest:
+            image: hqo-docker.jfrog.io/hello-nest
+            tags:
+              - ${DEVSPACE_GIT_COMMIT}
+            build:
+              docker:
+                useBuildKit: true
+      - op: add
+        path: deployments.name=hello-nest.helm.values.image
+        value:
+          repository: image(hqo-docker.jfrog.io/hello-nest)
+          tag: tag(hqo-docker.jfrog.io/hello-nest)
+  #
+  # Use this profile when you want to run functional tests
+  - name: test
+    patches:
+      - op: add
+        path: deployments.name=common-mysql.helm.values.mysql.image
+        value:
+          repository: mysql-test
